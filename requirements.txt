@@ -1,0 +1,3 @@
+# 「這個專案需要安裝哪些套件」的清單
+pymysql
+requests

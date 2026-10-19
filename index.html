@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>醫療數據自動化分析與期刊圖表生成系統</title>
+    <!-- Plotly.js：畫期刊圖表 -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- Google Fonts Inter：字型 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- 所有外觀都寫在 style.css -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- 頂部導覽列 -->
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <div class="brand">
+                <div class="brand-icon">🩺</div>
+                <div>
+                    <div class="brand-title-row">
+                        <h1>醫療數據自動化分析與期刊圖表生成系統</h1>
+                        <span class="version-badge">v1.0-Fixed</span>
+                    </div>
+                    <p class="brand-sub">Pure Clinical Analysis &amp; Publication-Grade Chart Generator</p>
+                </div>
+            </div>
+            <div class="topbar-actions">
+                <button onclick="exportSAS()" class="btn btn-dark">
+                    一鍵匯出 SAS 腳本
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 時間與空汙看板 -->
+    <div class="ticker">
+        <div class="container ticker-inner">
+            <div class="clocks">
+                <span>🕒 系統目前時間: <strong id="sys-clock" class="mono clock-sys">--</strong></span>
+                <span class="divider">|</span>
+                <span>☁️ 空汙檢測時間: <strong id="env-clock" class="mono clock-env">--</strong></span>
+            </div>
+            <div id="aq-ticker" class="aq-box">
+                <span id="aq-dot" class="aq-dot"></span>
+                <span class="aq-site" id="aq-site">小港測站 (#58):</span>
+                <!-- 各項數值（AQI、PM2.5、風速……）由 js/2_load_data.js 依 data.json 的資料自動排進來 -->
+                <span id="aq-items" class="aq-items"><span>載入中…</span></span>
+                <span id="aq-status" class="aq-status">載入中… (獨立環境看板，不納入臨床統計分析)</span>
+            </div>
+        </div>
+    </div>
+
+    <main class="container main">
+
+        <!-- 兩張 KPI 卡片 -->
+        <div class="grid grid-2">
+            <div class="card kpi-card">
+                <div>
+                    <p class="kpi-label">總受試者人數 (Total Sample Size, N)</p>
+                    <h3 class="kpi-value" id="kpi-total-n">--</h3>
+                    <p class="kpi-note" id="data-updated">--</p>
+                </div>
+                <div class="kpi-icon icon-indigo">👥</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-card">
+                    <div>
+                        <p class="kpi-label">整體有效樣本率</p>
+                        <h3 class="kpi-value" id="kpi-valid-rate">--</h3>
+                    </div>
+                    <div class="kpi-icon icon-sky">✅</div>
+                </div>
+                <div class="quality-row">
+                    <label>檢視各變項完整度:</label>
+                    <select id="variable-quality-select" onchange="updateQualityDisplay()" class="select-sm">
+                        <!-- 選項由 js/2_load_data.js 依變項清單自動產生 -->
+                    </select>
+                    <span id="quality-detail-text" class="quality-detail">有效: -- | 缺漏: --</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分組控制 + Table 1 -->
+        <div class="grid grid-workspace">
+
+            <!-- 左：自訂臨床分組引擎 -->
+            <div class="card">
+                <h2 class="card-title">自訂臨床分組引擎</h2>
+
+                <div class="field">
+                    <label class="field-label">選擇分組變項 (Group By)</label>
+                    <select id="strat-var" onchange="onStratVarChange()" class="input">
+                        <!-- 選項由 js/2_load_data.js 依變項清單自動產生 -->
+                    </select>
+                </div>
+
+                <div class="field" id="cutoff-container">
+                    <label class="field-label" id="cutoff-label">設定切點 (Cutoff)</label>
+                    <div class="cutoff-row">
+                        <span>&lt;</span>
+                        <input type="number" id="strat-cutoff" value="65" class="input">
+                        <span>vs&nbsp;&ge;</span>
+                    </div>
+                    <p class="hint">手動輸入切點數值進行動態分組 (例: 年齡 65、BMI 24、CAT 10)</p>
+                </div>
+
+                <button onclick="applyStratification()" class="btn btn-primary btn-block">
+                    套用分組並更新 Table 1 與圖表
+                </button>
+            </div>
+
+            <!-- 右：Table 1 -->
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 class="card-title" id="table1-title">Table 1. 依據所選變項分層之臨床特徵表</h2>
+                        <p class="card-sub">Baseline characteristics with Total and stratified columns</p>
+                    </div>
+                    <span class="tag">t-test / Chi-square / Fisher</span>
+                </div>
+
+                <div class="table-wrap custom-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>變項 (Characteristic)</th>
+                                <th id="th-total">Total (N=--)</th>
+                                <th id="th-group1">Group 1</th>
+                                <th id="th-group2">Group 2</th>
+                                <th class="text-right">P-value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table1-body">
+                            <!-- 由 js/4_table1.js 填入 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 兩張期刊圖 -->
+        <div class="grid grid-2">
+
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 class="card-title">圖 1：期刊風格箱型分佈圖 (含散佈點)</h2>
+                        <p class="card-sub">Boxplot with median line, whiskers &amp; jittered points</p>
+                    </div>
+                    <select id="chart1-outcome" onchange="updateCharts()" class="select-sm">
+                        <!-- 選項由 js/2_load_data.js 自動產生 -->
+                    </select>
+                </div>
+                <div id="journalBoxChart" class="chart"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 class="card-title">圖 2：線性迴歸散佈圖 (Crude Analysis)</h2>
+                        <p class="card-sub">Scatter plot with regression trend line</p>
+                    </div>
+                    <div class="select-stack">
+                        <select id="chart2-xvar" onchange="updateCharts()" class="select-sm"></select>
+                        <select id="chart2-yvar" onchange="updateCharts()" class="select-sm"></select>
+                    </div>
+                </div>
+                <div id="journalScatterChart" class="chart"></div>
+            </div>
+        </div>
+
+        <!-- 動態論文摘要 -->
+        <div class="card">
+            <div class="card-head">
+                <h2 class="card-title">動態論文摘要 (Results Section) 自動生成</h2>
+                <button onclick="copyAbstract()" class="btn btn-light btn-sm">
+                    複製內容
+                </button>
+            </div>
+            <div class="abstract-box" id="abstract-text">
+                <!-- 由 js/5_charts.js 填入 -->
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <p>醫療數據自動化分析與期刊圖表生成系統 &copy; 2026</p>
+        <p>Powered by Plotly.js for Medical Publication Graphics.</p>
+    </footer>
+
+    <!-- 網頁的功能 -->
+    <!-- 程式分成 6 個小檔案，順序不能換：後面的檔案會用到前面檔案的東西 -->
+    <script src="js/1_variables.js"></script> <!-- 問卷變項清單 -->
+    <script src="js/2_load_data.js"></script> <!-- 開網頁、讀 data.json、空汙看板 -->
+    <script src="js/3_statistics.js"></script> <!-- 統計公式（不用看懂） -->
+    <script src="js/4_table1.js"></script> <!-- 分組、Table 1、資料完整度 -->
+    <script src="js/5_charts.js"></script> <!-- 兩張圖 + 自動摘要 -->
+    <script src="js/6_export.js"></script> <!-- 匯出 SAS、複製摘要 -->
+</body>
+
+</html>
