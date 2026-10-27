@@ -210,7 +210,7 @@ function countNo(people, key) {
 }
 
 // P 值：顯著用 p-sig（粗體靛藍），不顯著用 p-ns（灰色），樣式在 style.css
-//   開頭是 < 的（'< 0.05'、'< 0.01'、'< 0.001'）→ 加 **，其他小於 0.05 → 加 *
+//   開頭是 < 的（'< 0.001'）→ 加 **，其他小於 0.05 → 加 *
 function formatP(p) {
     if (p === '-' || p === 'N/A') {
         return `<span class="p-ns">${p}</span>`;
