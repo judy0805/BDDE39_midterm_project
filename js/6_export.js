@@ -3,6 +3,12 @@
 // ============================================================
 
 
+// SAS 要讀的 CSV 檔放在哪裡（瀏覽器不知道電腦裡的路徑，所以寫在這裡）
+// 換資料夾或換 CSV 檔名時，改這兩行就好；也可以直接改下載後 .sas 檔最上面的 %let 兩行
+const SAS_CSV_FOLDER = 'C:\\Users\\CHUN\\BDDE39_midterm_project';
+const SAS_CSV_FILE = 'COPDCO_115.10.15-example.csv';
+
+
 // 產生一個 .sas 檔案讓使用者下載
 // 注意：目前 SAS 程式寫死「年齡 ≥ 65 分組」和「sgrq 對 cat 迴歸」，不會跟著畫面選單改變
 function exportSAS() {
@@ -20,8 +26,26 @@ function exportSAS() {
 /* COPD Questionnaire - Crude Analysis                       */
 /* ======================================================= */
 
+/* ------------------------------------------------------- */
+/* Step 1: CSV file location (change here if it moves)     */
+/*   path = folder that holds the CSV (no \\ at the end)    */
+/*   file = CSV file name (include .csv)                   */
+/* ------------------------------------------------------- */
+%let path = ${SAS_CSV_FOLDER};
+%let file = ${SAS_CSV_FILE};
+
+OPTIONS VALIDVARNAME=V7;   /* "Pul Embolism" -> Pul_Embolism */
+ods html;
+
+PROC IMPORT OUT=copd0
+    DATAFILE="&path\\&file"
+    DBMS=csv REPLACE;
+    GETNAMES=yes;
+    GUESSINGROWS=MAX;
+RUN;
+
 DATA analysis_ready;
-    SET copd.subjects;
+    SET copd0;
 
     /* Age (today - birthdate) and BMI (kg / m^2) */
     age = INT(YRDIF(birthdate, TODAY(), 'AGE'));
@@ -33,7 +57,9 @@ DATA analysis_ready;
     ELSE group_var = 0;
 RUN;
 
-/* Continuous variables: t-test */
+/* Continuous variables: t-test                            */
+/* Read the "Satterthwaite" (Variances = Unequal) row:     */
+/* the web page always uses this row.                      */
 PROC TTEST DATA=analysis_ready;
     CLASS group_var;
     VAR age weight height bmi cat mmrc sgrq;
