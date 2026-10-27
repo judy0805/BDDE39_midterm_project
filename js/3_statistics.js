@@ -6,7 +6,7 @@
 //   getNumbers(人群, 'bmi')             → 這群人的 BMI 數字清單（缺漏的自動去掉）
 //   mean(數字清單)                      → 平均
 //   sd(數字清單)                        → 標準差（除以 n-1）
-//   calculateTTestP(第1組, 第2組, 'bmi') → 兩組 BMI 比較的 P 值文字，例如 '0.032'、'< 0.01'
+//   calculateTTestP(第1組, 第2組, 'bmi') → 兩組 BMI 比較的 P 值文字，例如 '0.032'、'< 0.001'（= SAS 的 Satterthwaite）
 //   test2x2P(a, b, c, d)                → 2x2 表格的 P 值文字（卡方 / Fisher）
 //   linearRegression(x清單, y清單)       → 迴歸的 β、95% CI、P 值
 // ============================================================
@@ -55,32 +55,111 @@ function sd(numbers) {
 }
 
 
-// ===== 連續變項：兩組平均的 t 檢定（Welch）=====
-// 注意：P 值用常態分佈近似，不是真正的 t 分佈；樣本很少時 P 值會偏小
+// ===== 連續變項：兩組平均的 t 檢定（不假設變異數相等）=====
+// 就是 SAS PROC TTEST 報表裡 Method = Satterthwaite（Variances = Unequal）那一列
+//   自由度用 Satterthwaite 公式算（會有小數），再用真正的 t 分佈算 P 值
 function calculateTTestP(group1, group2, key) {
     const x1 = getNumbers(group1, key);
     const x2 = getNumbers(group2, key);
-    if (x1.length === 0 || x2.length === 0) {
+    // 每組至少要 2 個人才算得出變異數（SAS 也一樣）
+    if (x1.length < 2 || x2.length < 2) {
         return 'N/A';
     }
-    // 只有 1 個人時變異數沒辦法算，當成 0
-    const v1 = x1.length > 1 ? variance(x1) : 0;
-    const v2 = x2.length > 1 ? variance(x2) : 0;
-    const se = Math.sqrt(v1 / x1.length + v2 / x2.length);
-    if (se === 0) {
-        return '1.000';
+    const n1 = x1.length, n2 = x2.length;
+    const a = variance(x1) / n1, b = variance(x2) / n2;
+    if (a + b === 0) {
+        return '1.000';   // 兩組每個人數值都一樣，沒辦法檢定
     }
-    const t = (mean(x1) - mean(x2)) / se;
-    return approxPValue(t);
+    const t = (mean(x1) - mean(x2)) / Math.sqrt(a + b);
+    const df = (a + b) * (a + b) / (a * a / (n1 - 1) + b * b / (n2 - 1));
+    return formatPValue(tTestP(t, df));
 }
 
-// 把 t（或 z）值換成 P 值文字
-function approxPValue(z) {
-    const absZ = Math.abs(z);
-    if (absZ > 3.29) return '< 0.001';
-    if (absZ > 2.58) return '< 0.01';
-    if (absZ > 1.96) return '< 0.05';
-    return Math.exp(-0.717 * absZ - 0.416 * absZ * absZ).toFixed(3);
+// P 值（數字）→ 顯示用的文字，例如 0.1259 → '0.126'；很小時顯示 '< 0.001'
+function formatPValue(p) {
+    if (p < 0.001) {
+        return '< 0.001';
+    }
+    return p.toFixed(3);
+}
+
+
+// ===== t 分佈（查表用的數學，不用看懂）=====
+
+// 雙尾 t 檢定 P 值：t 值、自由度 df（可以有小數）
+function tTestP(t, df) {
+    return incompleteBeta(df / (df + t * t), df / 2, 0.5);
+}
+
+// 95% 信賴區間要用的 t 值（自由度很大時接近 1.96）：用二分法找雙尾 P = 0.05 的 t
+function tCritical95(df) {
+    let low = 0, high = 1000;
+    for (let i = 0; i < 100; i++) {
+        const middle = (low + high) / 2;
+        if (tTestP(middle, df) > 0.05) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    return (low + high) / 2;
+}
+
+// log(Gamma(x))，Lanczos 公式
+function logGamma(x) {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
+        -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+    let y = x;
+    const tmp = x + 5.5 - (x + 0.5) * Math.log(x + 5.5);
+    let ser = 1.000000000190015;
+    for (let j = 0; j < 6; j++) {
+        y += 1;
+        ser += c[j] / y;
+    }
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+}
+
+// 正規化不完全 Beta 函數 I_x(a, b)，t 分佈的 P 值靠它算
+function incompleteBeta(x, a, b) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b)
+        + a * Math.log(x) + b * Math.log(1 - x));
+    // 用連分數算；x 太大時換邊算比較準
+    if (x < (a + 1) / (a + b + 2)) {
+        return front * betaContinuedFraction(x, a, b) / a;
+    }
+    return 1 - front * betaContinuedFraction(1 - x, b, a) / b;
+}
+
+// 不完全 Beta 函數的連分數（Numerical Recipes 的 betacf）
+function betaContinuedFraction(x, a, b) {
+    const tiny = 1e-300;
+    let c = 1;
+    let d = 1 - (a + b) * x / (a + 1);
+    if (Math.abs(d) < tiny) d = tiny;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= 300; m++) {
+        const m2 = 2 * m;
+        let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
+        d = 1 + aa * d;
+        if (Math.abs(d) < tiny) d = tiny;
+        c = 1 + aa / c;
+        if (Math.abs(c) < tiny) c = tiny;
+        d = 1 / d;
+        h *= d * c;
+        aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
+        d = 1 + aa * d;
+        if (Math.abs(d) < tiny) d = tiny;
+        c = 1 + aa / c;
+        if (Math.abs(c) < tiny) c = tiny;
+        d = 1 / d;
+        const change = d * c;
+        h *= change;
+        if (Math.abs(change - 1) < 1e-12) break;
+    }
+    return h;
 }
 
 
@@ -174,9 +253,14 @@ function linearRegression(xs, ys) {
     result.intercept = my - result.slope * mx;
     const residualSD = Math.sqrt(Math.max(0, (ssYY - result.slope * ssXY) / (n - 2)));
     const seBeta = residualSD / Math.sqrt(ssXX);
-    result.ciLow = result.slope - 1.96 * seBeta;
-    result.ciHigh = result.slope + 1.96 * seBeta;
-    // 跟 t 檢定一樣用常態近似
-    result.p = approxPValue(seBeta > 0 ? result.slope / seBeta : 0);
+    // 跟 SAS PROC REG 一樣用 t 分佈，自由度 = n - 2
+    const tValue = tCritical95(n - 2);
+    result.ciLow = result.slope - tValue * seBeta;
+    result.ciHigh = result.slope + tValue * seBeta;
+    if (seBeta > 0) {
+        result.p = formatPValue(tTestP(result.slope / seBeta, n - 2));
+    } else {
+        result.p = result.slope === 0 ? '1.000' : '< 0.001';   // 每個點剛好在線上
+    }
     return result;
 }
