@@ -10,8 +10,28 @@ const SAS_CSV_FILE = 'COPDCO_115.10.15-example.csv';
 
 
 // 產生一個 .sas 檔案讓使用者下載
-// 注意：目前 SAS 程式寫死「年齡 ≥ 65 分組」和「sgrq 對 cat 迴歸」，不會跟著畫面選單改變
+// 分組和迴歸會跟著畫面上的選單：「分組變項 + 切點」和「圖 2 的 X、Y」
 function exportSAS() {
+    // ① 分組：照畫面上選的變項寫 SAS 的分組條件
+    const groupKey = document.getElementById('strat-var').value;
+    const cutoff = parseFloat(document.getElementById('strat-cutoff').value || 0);
+    let groupNote, groupCode;
+    if (groupKey === 'sex') {
+        groupNote = 'sex (M = 1, F = 0)';
+        groupCode = `IF sex = 'M' THEN group_var = 1;
+    ELSE IF sex = 'F' THEN group_var = 0;`;
+    } else if (isCategorical(groupKey)) {
+        groupNote = `${groupKey} (yes = 1, no = 0)`;
+        groupCode = `group_var = ${groupKey};`;
+    } else {
+        groupNote = `${groupKey} >= ${cutoff}`;
+        groupCode = `IF NOT MISSING(${groupKey}) THEN group_var = (${groupKey} >= ${cutoff});`;
+    }
+
+    // ② 迴歸：照圖 2 選的 X、Y
+    const xKey = document.getElementById('chart2-xvar').value;
+    const yKey = document.getElementById('chart2-yvar').value;
+
     // 病史變項名稱排成一行，例如 'htn dm hyperlipidemia … any_cancer'
     const diseaseNames = [];
     for (const d of DISEASE_VARS) {
@@ -52,9 +72,8 @@ DATA analysis_ready;
     IF weight > 0 AND height > 0 THEN bmi = weight / (height**2);
     any_cancer = (cancer > 0);
 
-    /* Grouping: age >= 65 */
-    IF age >= 65 THEN group_var = 1;
-    ELSE group_var = 0;
+    /* Grouping: ${groupNote} (missing = not grouped) */
+    ${groupCode}
 RUN;
 
 /* Continuous variables: t-test                            */
@@ -70,9 +89,9 @@ PROC FREQ DATA=analysis_ready;
     TABLES group_var * (sex ${diseaseList}) / CHISQ FISHER;
 RUN;
 
-/* Crude Linear Regression Analysis */
+/* Crude Linear Regression Analysis: Y = ${yKey}, X = ${xKey} */
 PROC REG DATA=analysis_ready;
-    MODEL sgrq = cat;
+    MODEL ${yKey} = ${xKey} / CLB;   /* CLB = print 95% CI of the slope */
 RUN;
 `;
     downloadText(code, 'clinical_crude_analysis.sas');
