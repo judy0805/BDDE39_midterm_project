@@ -2,7 +2,6 @@
 
 把 COPD（慢性阻塞性肺病）受試者的問卷資料，自動整理成**期刊論文常用的 Table 1、統計圖表和結果摘要**，並可一鍵匯出 **SAS 腳本**，讓網頁算出的結果可以在 SAS 裡重算、對照。頁面上方另有高雄**小港測站的即時空氣品質看板**。
 
-> 版本：v1.0-mvp（2026-10-19），2026-10-27 起統計方法改為與 SAS 一致，並拿掉相關係數熱圖。
 
 ---
 
@@ -51,7 +50,7 @@ index.html（用 VS Code Live Server 開啟）
 
 | 部分 | 使用的技術 |
 |---|---|
-| 網頁畫面 | HTML、CSS（自己寫的 `style.css`，沒有用 CSS 框架）、Google Fonts Inter 字型 |
+| 網頁畫面 | HTML、CSS、Google Fonts Inter 字型 |
 | 網頁功能 | JavaScript（分成 6 個檔案，見下方資料夾結構） |
 | 圖表 | [Plotly.js](https://plotly.com/javascript/) 2.27 |
 | 統計計算 | 在 JavaScript 裡自己實作（t 分佈、卡方、Fisher 精確檢定、線性迴歸），不需額外套件 |
@@ -116,10 +115,10 @@ python -m pip install -r requirements.txt
 
 ```ini
 [DB]
-host = 127.0.0.1
+host = localhost
 user = root
-password = 你的密碼
-port = 3306
+password = password
+port = port
 database = copd
 
 [MOENV]
