@@ -1,7 +1,8 @@
 // ============================================================
-// 5_charts.js：兩張期刊圖 + 自動摘要
+// 5_charts.js：三張期刊圖 + 自動摘要
 //   圖 1：箱型圖，比較兩組的某個數值
 //   圖 2：散佈圖 + 迴歸線，看兩個數值的關係
+//   圖 3：熱圖，一次看所有數值變項兩兩之間的相關係數
 //   摘要：把上面兩張圖的結果寫成一段中文
 // 畫圖用的是 Plotly：Plotly.newPlot('畫在哪個 id', [資料], 外觀, 設定)
 // ============================================================
@@ -16,6 +17,7 @@ function updateCharts(group1, group2, name1, name2, groupKey) {
     }
     const box = drawBoxChart(group1, group2, name1, name2);
     const reg = drawScatterChart();
+    drawHeatmap();
     writeAbstract(box, reg, name1, name2, groupKey);
 }
 
@@ -30,15 +32,15 @@ function drawBoxChart(group1, group2, name1, name2) {
     // 一個 trace 就是一個箱子
     const box1 = {
         y: values1, type: 'box', name: name1,
-        boxpoints: 'all', jitter: 0.4, pointpos: -1.5,   // 每個人都畫成點，左右散開
-        marker: { color: '#2563EB', size: 5, opacity: 0.8 },
+        boxpoints: 'all', jitter: 0.3, pointpos: 0,   // 每個人都畫成點，疊在箱子正上方（pointpos 0 = 置中），左右稍微散開
+        marker: { color: '#1D4ED8', size: 6, opacity: 0.6, line: { color: '#FFFFFF', width: 0.5 } },
         line: { color: '#1D4ED8', width: 2 },
         fillcolor: 'rgba(37, 99, 235, 0.25)'
     };
     const box2 = {
         y: values2, type: 'box', name: name2,
-        boxpoints: 'all', jitter: 0.4, pointpos: -1.5,
-        marker: { color: '#0D9488', size: 5, opacity: 0.8 },
+        boxpoints: 'all', jitter: 0.3, pointpos: 0,
+        marker: { color: '#0F766E', size: 6, opacity: 0.6, line: { color: '#FFFFFF', width: 0.5 } },
         line: { color: '#0F766E', width: 2 },
         fillcolor: 'rgba(13, 148, 136, 0.25)'
     };
@@ -106,6 +108,69 @@ function drawScatterChart() {
 }
 
 
+// ===== 圖 3：相關係數熱圖 =====
+// 每一格 = 兩個變項的相關係數 r（-1 ~ 1）
+//   紅色 = 正相關（一個高、另一個也高），藍色 = 負相關，白色 = 幾乎沒關係
+function drawHeatmap() {
+    const names = [];    // 座標軸上的名字
+    const matrix = [];   // 一列一列的 r 值
+    const labels = [];   // 每格上顯示的文字
+    for (const row of CONT_VARS) {
+        names.push(row.label);
+        const rValues = [];
+        const rTexts = [];
+        for (const col of CONT_VARS) {
+            const r = correlation(row.key, col.key);
+            rValues.push(r);
+            rTexts.push(r === null ? '-' : r.toFixed(2));
+        }
+        matrix.push(rValues);
+        labels.push(rTexts);
+    }
+
+    const heat = {
+        z: matrix, x: names, y: names, type: 'heatmap',
+        text: labels, texttemplate: '%{text}',   // 每格寫上 r 值
+        colorscale: 'RdBu',   // 藍 → 白 → 紅
+        zmin: -1, zmax: 1,
+        colorbar: { title: 'r' },
+        hovertemplate: '%{y} × %{x}<br>r = %{text}<extra></extra>'
+    };
+    const layout = {
+        yaxis: { autorange: 'reversed' },   // 第一個變項放最上面
+        margin: { l: 110, r: 20, t: 20, b: 90 },
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)'
+    };
+    Plotly.newPlot('heatmapChart', [heat], layout, { displayModeBar: false });
+}
+
+// 兩個變項的 Pearson 相關係數（只用兩個都有填的人；人數不夠回傳 null）
+function correlation(xKey, yKey) {
+    const xs = [], ys = [];
+    for (const p of patients) {
+        if (isNum(p[xKey]) && isNum(p[yKey])) {
+            xs.push(p[xKey]);
+            ys.push(p[yKey]);
+        }
+    }
+    if (xs.length < 3) {
+        return null;
+    }
+    const mx = mean(xs), my = mean(ys);
+    let ssXX = 0, ssYY = 0, ssXY = 0;
+    for (let i = 0; i < xs.length; i++) {
+        ssXX += (xs[i] - mx) * (xs[i] - mx);
+        ssYY += (ys[i] - my) * (ys[i] - my);
+        ssXY += (xs[i] - mx) * (ys[i] - my);
+    }
+    if (ssXX === 0 || ssYY === 0) {
+        return null;
+    }
+    return ssXY / Math.sqrt(ssXX * ssYY);
+}
+
+
 // ===== 自動摘要 =====
 function writeAbstract(box, reg, name1, name2, groupKey) {
     let groupName = '性別';
@@ -135,7 +200,7 @@ function writeAbstract(box, reg, name1, name2, groupKey) {
 
 // ===== 小工具 =====
 
-// P 值文字：'< 0.01' → 'P < 0.01'，'0.032' → 'P = 0.032'
+// P 值文字：'< 0.001' → 'P < 0.001'，'0.032' → 'P = 0.032'
 function pText(p) {
     if (p.startsWith('<')) {
         return 'P ' + p;
@@ -144,7 +209,7 @@ function pText(p) {
 }
 
 // P 值小於 0.05 嗎？
-//   '< 0.05'、'< 0.01'、'< 0.001' 開頭是 < ，一定顯著；'N/A' 算不顯著
+//   '< 0.001' 開頭是 < ，一定顯著；'N/A' 算不顯著
 function isSignificant(p) {
     if (p.startsWith('<')) {
         return true;
